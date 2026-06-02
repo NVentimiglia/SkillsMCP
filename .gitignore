@@ -23,3 +23,6 @@ state/
 
 # Project-specific skill exclusions
 /.agents/skills/learn
+/.agents/skills/aspnet-core
+/.agents/skills/security-best-practices
+/.agents/skills/skill-creator

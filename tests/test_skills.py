@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from skills_mcp.server import configure_for_tests, read_skill
+from skills_mcp.server import configure_for_tests, list_skill_files, read_skill, read_skill_file
 from skills_mcp.skills.loader import SkillIndex
 
 
@@ -120,5 +120,56 @@ def test_skill_name_constraints_enforced(project_home) -> None:
     names = [s["name"] for s in ix.list_skills_meta()]
     assert "Bad-Name" not in names
     assert "bad-name" not in names
+
+
+def test_list_skill_files_and_read_skill_file(project_home) -> None:
+    d = project_home / ".agents" / "skills" / "toolbox"
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "SKILL.md").write_text(
+        "---\nname: toolbox\ndescription: has refs/scripts/assets\n---\nBody\n",
+        encoding="utf-8",
+    )
+    (d / "references").mkdir(exist_ok=True)
+    (d / "scripts").mkdir(exist_ok=True)
+    (d / "assets").mkdir(exist_ok=True)
+    (d / "references" / "guide.md").write_text("Guide text", encoding="utf-8")
+    (d / "scripts" / "run.py").write_text("print('ok')\n", encoding="utf-8")
+    (d / "assets" / "template.txt").write_text("TEMPLATE", encoding="utf-8")
+
+    configure_for_tests(project_home)
+    refs = json.loads(list_skill_files("toolbox", "references"))
+    assert refs[0]["path"] == "guide.md"
+    assert isinstance(refs[0]["bytes"], int)
+
+    script = read_skill_file("toolbox", "run.py", kind="scripts")
+    assert "print('ok')" in script
+
+
+def test_read_skill_file_rejects_traversal(project_home) -> None:
+    d = project_home / ".agents" / "skills" / "safe-skill"
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "SKILL.md").write_text(
+        "---\nname: safe-skill\ndescription: safe\n---\nBody\n",
+        encoding="utf-8",
+    )
+    (d / "references").mkdir(exist_ok=True)
+    (d / "references" / "ok.md").write_text("ok", encoding="utf-8")
+    configure_for_tests(project_home)
+
+    with pytest.raises(ValueError, match="inside the skill directory"):
+        read_skill_file("safe-skill", "../SKILL.md", kind="references")
+
+
+def test_list_skill_files_invalid_kind(project_home) -> None:
+    d = project_home / ".agents" / "skills" / "kind-check"
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "SKILL.md").write_text(
+        "---\nname: kind-check\ndescription: check kind\n---\nBody\n",
+        encoding="utf-8",
+    )
+    configure_for_tests(project_home)
+
+    with pytest.raises(ValueError, match="invalid kind"):
+        list_skill_files("kind-check", "docs")
 
 

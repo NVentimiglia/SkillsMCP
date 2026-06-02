@@ -6,13 +6,45 @@ Works with Claude Code, Gemini CLI, Cursor, and Antigravity.
 
 Pairs well with [LearnSkill](https://github.com/NVentimiglia/LearnSkill) (behavioral auditing) and [claude-mem](https://github.com/thedotmack/claude-mem) (long-term memory).
 
+**How it works (MCP, registration, code examples):** see [ABOUT.md](ABOUT.md).
+
+---
+
+## Install (standalone)
+
+SkillMCP installs and runs on its own. You do not need the parent Agents monorepo or any sibling tool (LearnSkill, claude-mem, etc.).
+
+```bash
+cd SkillMCP    # this directory only
+
+# Option A — uv (recommended)
+uv sync
+uv run skills-mcp --version
+
+# Option B — pip
+pip install -e .
+skills-mcp --version
+```
+
+Then wire it into a project:
+
+```bash
+cd /path/to/your-project
+skills-mcp init .          # skillmcp.toml, .agents/, register MCP with hosts
+skills-mcp doctor            # verify layout and host registration
+```
+
+Restart your agent host (Cursor, Claude Code, etc.) so it spawns the new MCP server.
+
+**Requirements:** Python ≥ 3.11.
+
 ---
 
 ## Quick Start
 
 ```bash
-cd /path/to/project
-skills-mcp init .    # scaffold .agents/ skills
+cd /path/to/your-project
+skills-mcp init .
 ```
 
 Restart your agent host to pick up the new skills.
@@ -45,10 +77,7 @@ Markdown skill files the agent fetches with `list_skills` / `read_skill` as need
 
 ## Setup
 
-1. **Install**
-   ```bash
-   cd SkillMCP && uv sync
-   ```
+1. **Install** (see [Install (standalone)](#install-standalone) above).
 
 2. **Initialize**
    ```bash
@@ -68,6 +97,28 @@ Markdown skill files the agent fetches with `list_skills` / `read_skill` as need
    Each agent folder can contain:
    - `AGENT.md` — behavioral rules injected into every session (all folders combined)
    - `skills/` — skill library scanned for `list_skills` / `read_skill`
+
+4. **Re-register after moving the project**
+   ```bash
+   skills-mcp mcp register
+   ```
+
+---
+
+## MCP tools
+
+When the host has registered `skills-mcp`, the agent can call:
+
+| Tool | Description |
+|------|-------------|
+| `verify_setup` | Health snapshot: paths, skill counts |
+| `list_skills` | JSON catalog of skills (`project_path` optional for local merge) |
+| `read_skill` | Full `SKILL.md` markdown by name |
+| `list_skill_files` | List files in a skill's `references` / `scripts` / `assets` directory |
+| `read_skill_file` | Read one file from a skill's `references` / `scripts` / `assets` directory |
+| `skill_health` | Server status and telemetry counters |
+
+See [ABOUT.md](ABOUT.md) for protocol details and Python client examples.
 
 ---
 
@@ -117,6 +168,7 @@ The server exposes a health-check tool `skill_health` that returns details about
 | Command | Description |
 |---|---|
 | `init [path]` | Scaffold `.agents/`, `skillmcp.toml`, `AGENT.md`, register MCP |
+| `serve [--root PATH]` | Run MCP server on stdio (normally spawned by the host) |
 | `doctor` | Verify directory layout and MCP registration |
 | `mcp register` | Re-register with all agent hosts (Claude, Gemini, etc.) |
 
@@ -124,5 +176,6 @@ The server exposes a health-check tool `skill_health` that returns details about
 
 ## Troubleshooting
 
-- **Stale Paths**: If you move your project, run `skills-mcp mcp register` from the new location to update absolute paths in the MCP configs.
-- **Missing Skills**: Run `skills-mcp doctor` to see exactly which `skillmcp.toml` is being discovered and how many skills were found.
+- **Stale paths**: If you move your project, run `skills-mcp mcp register` from the new location to update absolute paths in the MCP configs.
+- **Missing skills**: Run `skills-mcp doctor` to see which `skillmcp.toml` is discovered and how many skills were found.
+- **Server not starting**: Confirm the host’s `mcp.json` / `settings.json` entry points at the same Python where you installed `skills-mcp`. See [ABOUT.md — Manual host config](ABOUT.md#4-manual-host-config-no-init).

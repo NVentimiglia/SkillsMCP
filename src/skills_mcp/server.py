@@ -4,6 +4,7 @@ import json
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import cast
 
 from mcp.server.fastmcp import FastMCP
 
@@ -180,6 +181,95 @@ def read_skill(name: str, project_path: str = "", usage_reason: str = "", sessio
     then falls back to global skills.
     """
     return _run_traced("read_skill", lambda: _impl_read_skill(name, project_path, usage_reason))
+
+
+_SKILL_FILE_KINDS = {"references", "scripts", "assets"}
+
+
+def _resolve_skill_with_optional_local(name: str, project_path: str):
+    skills, app = _require_runtime()
+    local_idx = _local_skill_index(project_path, app)
+    if local_idx is not None:
+        try:
+            return local_idx.get_by_name(name)
+        except (KeyError, ValueError):
+            pass
+    return skills.get_by_name(name)
+
+
+def _skill_files_dir(skill, kind: str) -> Path:
+    if kind not in _SKILL_FILE_KINDS:
+        allowed = ", ".join(sorted(_SKILL_FILE_KINDS))
+        raise ValueError(f"invalid kind `{kind}`; expected one of: {allowed}")
+    rel = cast(str | None, getattr(skill, f"{kind}_dir"))
+    if not rel:
+        raise FileNotFoundError(f"skill `{skill.parsed.fm.name}` has no `{kind}` directory")
+    return (skill.skill_root / kind).resolve()
+
+
+def _impl_list_skill_files(name: str, kind: str, project_path: str) -> str:
+    sk = _resolve_skill_with_optional_local(name, project_path)
+    base = _skill_files_dir(sk, kind)
+    if not base.is_dir():
+        raise FileNotFoundError(f"`{kind}` directory missing for skill `{name}`")
+
+    rows: list[dict[str, str | int]] = []
+    for file_path in sorted(p for p in base.rglob("*") if p.is_file()):
+        rel = file_path.relative_to(base).as_posix()
+        stat = file_path.stat()
+        rows.append(
+            {
+                "path": rel,
+                "bytes": stat.st_size,
+                "modified_utc": datetime.fromtimestamp(stat.st_mtime, UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            }
+        )
+    return json.dumps(rows, ensure_ascii=False)
+
+
+@mcp.tool()
+def list_skill_files(
+    name: str,
+    kind: str = "references",
+    project_path: str = "",
+    session_note: str = "",
+) -> str:
+    """List files under a skill's references/scripts/assets directory.
+
+    Returns JSON rows with relative path, byte size, and modified timestamp.
+    """
+    return _run_traced("list_skill_files", lambda: _impl_list_skill_files(name, kind, project_path))
+
+
+def _impl_read_skill_file(name: str, kind: str, rel_path: str, project_path: str) -> str:
+    sk = _resolve_skill_with_optional_local(name, project_path)
+    base = _skill_files_dir(sk, kind)
+    if not base.is_dir():
+        raise FileNotFoundError(f"`{kind}` directory missing for skill `{name}`")
+
+    candidate = (base / rel_path).resolve()
+    try:
+        candidate.relative_to(base)
+    except ValueError as exc:
+        raise ValueError("rel_path must stay inside the skill directory") from exc
+    if not candidate.is_file():
+        raise FileNotFoundError(f"file not found: {rel_path}")
+    return candidate.read_text(encoding="utf-8")
+
+
+@mcp.tool()
+def read_skill_file(
+    name: str,
+    rel_path: str,
+    kind: str = "references",
+    project_path: str = "",
+    session_note: str = "",
+) -> str:
+    """Read one UTF-8 text file from a skill's references/scripts/assets directory."""
+    return _run_traced(
+        "read_skill_file",
+        lambda: _impl_read_skill_file(name, kind, rel_path, project_path),
+    )
 
 
 def _impl_skill_health() -> str:
