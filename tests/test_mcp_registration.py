@@ -23,29 +23,25 @@ from skills_mcp.mcp_registration import (
 )
 
 
-def _fake_claude_settings(tmp_path: Path) -> Path:
-    return tmp_path / ".claude" / "settings.json"
+def _fake_claude_settings(project_root: Path) -> Path:
+    return project_root / ".mcp.json"
 
 
-def _fake_cursor_settings(tmp_path: Path) -> Path:
-    return tmp_path / ".cursor" / "mcp.json"
+def _fake_cursor_settings(project_root: Path) -> Path:
+    return project_root / ".cursor" / "mcp.json"
 
 
 def _fake_gemini_settings(tmp_path: Path) -> Path:
     return tmp_path / ".gemini" / "settings.json"
 
 
-def _fake_antigravity_settings(tmp_path: Path) -> Path:
-    return tmp_path / ".antigravity" / "mcp.json"
+def _fake_antigravity_settings(project_root: Path) -> Path:
+    return project_root / ".agents" / "mcp_config.json"
 
 
-def _patch_all(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    monkeypatch.setattr("skills_mcp.mcp_registration._CLAUDE_SETTINGS", _fake_claude_settings(tmp_path))
-    monkeypatch.setattr("skills_mcp.mcp_registration._CURSOR_SETTINGS", _fake_cursor_settings(tmp_path))
+def _patch_gemini(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setattr("skills_mcp.mcp_registration._GEMINI_SETTINGS", _fake_gemini_settings(tmp_path))
-    monkeypatch.setattr("skills_mcp.mcp_registration._ANTIGRAVITY_SETTINGS", _fake_antigravity_settings(tmp_path))
-    monkeypatch.setattr("skills_mcp.mcp_registration._ANTIGRAVITY_GEMINI_SETTINGS",
-                        tmp_path / ".gemini" / "antigravity" / "mcp_config.json")
+    (tmp_path / "skillmcp.toml").write_text('agent_folders = [".agents/"]\n', encoding="utf-8")
 
 
 # ---------------------------------------------------------------------------
@@ -65,9 +61,8 @@ def test_server_entry_contains_project_root(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_register_claude_creates_entry(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_register_claude_creates_entry(tmp_path: Path) -> None:
     settings = _fake_claude_settings(tmp_path)
-    monkeypatch.setattr("skills_mcp.mcp_registration._CLAUDE_SETTINGS", settings)
 
     ok, msg = register_claude(tmp_path)
 
@@ -77,10 +72,7 @@ def test_register_claude_creates_entry(tmp_path: Path, monkeypatch: pytest.Monke
     assert data["mcpServers"][_SERVER_KEY]["env"]["SKILLS_MCP_ROOT"] == str(tmp_path.resolve())
 
 
-def test_register_claude_idempotent(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    settings = _fake_claude_settings(tmp_path)
-    monkeypatch.setattr("skills_mcp.mcp_registration._CLAUDE_SETTINGS", settings)
-
+def test_register_claude_idempotent(tmp_path: Path) -> None:
     register_claude(tmp_path)
     ok, msg = register_claude(tmp_path)
 
@@ -88,11 +80,9 @@ def test_register_claude_idempotent(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     assert "already" in msg
 
 
-def test_register_claude_merges_existing_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_register_claude_merges_existing_config(tmp_path: Path) -> None:
     settings = _fake_claude_settings(tmp_path)
-    settings.parent.mkdir(parents=True, exist_ok=True)
     settings.write_text(json.dumps({"mcpServers": {"other-server": {"command": "x"}}}), encoding="utf-8")
-    monkeypatch.setattr("skills_mcp.mcp_registration._CLAUDE_SETTINGS", settings)
 
     register_claude(tmp_path)
 
@@ -106,9 +96,8 @@ def test_register_claude_merges_existing_config(tmp_path: Path, monkeypatch: pyt
 # ---------------------------------------------------------------------------
 
 
-def test_register_cursor_creates_entry(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_register_cursor_creates_entry(tmp_path: Path) -> None:
     settings = _fake_cursor_settings(tmp_path)
-    monkeypatch.setattr("skills_mcp.mcp_registration._CURSOR_SETTINGS", settings)
 
     ok, msg = register_cursor(tmp_path)
 
@@ -117,10 +106,7 @@ def test_register_cursor_creates_entry(tmp_path: Path, monkeypatch: pytest.Monke
     assert _SERVER_KEY in data["mcpServers"]
 
 
-def test_register_cursor_idempotent(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    settings = _fake_cursor_settings(tmp_path)
-    monkeypatch.setattr("skills_mcp.mcp_registration._CURSOR_SETTINGS", settings)
-
+def test_register_cursor_idempotent(tmp_path: Path) -> None:
     register_cursor(tmp_path)
     ok, msg = register_cursor(tmp_path)
 
@@ -160,9 +146,8 @@ def test_register_gemini_idempotent(tmp_path: Path, monkeypatch: pytest.MonkeyPa
 # ---------------------------------------------------------------------------
 
 
-def test_register_antigravity_creates_entry(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_register_antigravity_creates_entry(tmp_path: Path) -> None:
     settings = _fake_antigravity_settings(tmp_path)
-    monkeypatch.setattr("skills_mcp.mcp_registration._ANTIGRAVITY_SETTINGS", settings)
 
     ok, msg = register_antigravity(tmp_path)
 
@@ -171,10 +156,7 @@ def test_register_antigravity_creates_entry(tmp_path: Path, monkeypatch: pytest.
     assert _SERVER_KEY in data["mcpServers"]
 
 
-def test_register_antigravity_idempotent(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    settings = _fake_antigravity_settings(tmp_path)
-    monkeypatch.setattr("skills_mcp.mcp_registration._ANTIGRAVITY_SETTINGS", settings)
-
+def test_register_antigravity_idempotent(tmp_path: Path) -> None:
     register_antigravity(tmp_path)
     ok, msg = register_antigravity(tmp_path)
 
@@ -188,7 +170,7 @@ def test_register_antigravity_idempotent(tmp_path: Path, monkeypatch: pytest.Mon
 
 
 def test_register_all_installs_all_hosts(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    _patch_all(monkeypatch, tmp_path)
+    _patch_gemini(monkeypatch, tmp_path)
 
     ok, msg = register_all(tmp_path)
 
@@ -205,9 +187,9 @@ def test_register_all_installs_all_hosts(tmp_path: Path, monkeypatch: pytest.Mon
 
 
 def test_registration_status_unregistered(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    _patch_all(monkeypatch, tmp_path)
+    _patch_gemini(monkeypatch, tmp_path)
 
-    status = registration_status()
+    status = registration_status(tmp_path)
     assert status["claude"] is False
     assert status["cursor"] is False
     assert status["gemini"] is False
@@ -215,10 +197,10 @@ def test_registration_status_unregistered(tmp_path: Path, monkeypatch: pytest.Mo
 
 
 def test_registration_status_registered(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    _patch_all(monkeypatch, tmp_path)
+    _patch_gemini(monkeypatch, tmp_path)
 
     register_all(tmp_path)
-    status = registration_status()
+    status = registration_status(tmp_path)
 
     assert status["claude"] is True
     assert status["cursor"] is True

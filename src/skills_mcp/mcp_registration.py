@@ -3,12 +3,12 @@
 Once registered, the host spawns ``skills-mcp serve`` automatically at session
 start — the user never runs it manually.
 
-Supported hosts
----------------
-claude      — ~/.claude/settings.json           mcpServers entry
-cursor      — ~/.cursor/mcp.json                mcpServers entry
-gemini      — ~/.gemini/settings.json           mcpServers entry
-antigravity — ~/.antigravity/mcp.json           mcpServers entry  (Google IDE)
+Supported hosts (workspace-first where possible)
+------------------------------------------------
+claude      — <project>/.mcp.json
+cursor      — <project>/.cursor/mcp.json
+gemini      — ~/.gemini/settings.json  (global)
+antigravity — <project>/.agents/mcp_config.json
 """
 
 from __future__ import annotations
@@ -39,16 +39,17 @@ def _server_entry(project_root: Path) -> dict:
     root_path = str(project_root.resolve())
     env: dict[str, str] = {"SKILLS_MCP_ROOT": root_path}
 
-    # Auto-include the bundled agent folder shipped with this SkillMCP install.
-    # Path: <package-root>/.agents  (two levels up from src/skills_mcp/)
-    # AGENT.md from this folder is injected; skills/ subdir is scanned for skills.
     pkg_agent = Path(__file__).resolve().parent.parent.parent / ".agents"
     if pkg_agent.is_dir():
         env["SKILLS_MCP_LIBRARY"] = str(pkg_agent)
 
+    args = ["-m", "skills_mcp", "serve", "--root", root_path]
+    if sys.platform == "win32":
+        args = ["-u", *args]
+
     return {
         "command": sys.executable,
-        "args": ["-m", "skills_mcp", "serve", "--root", root_path],
+        "args": args,
         "env": env,
     }
 
@@ -61,7 +62,6 @@ def _register_host(settings_path: Path, project_root: Path) -> tuple[bool, str]:
 
     if _SERVER_KEY in servers:
         existing = servers[_SERVER_KEY]
-        # If the registration is identical, skip to avoid unnecessary writes
         if (
             existing.get("command") == entry["command"]
             and existing.get("args") == entry["args"]
@@ -77,36 +77,60 @@ def _register_host(settings_path: Path, project_root: Path) -> tuple[bool, str]:
     return True, str(settings_path)
 
 
-# ---------------------------------------------------------------------------
-# Claude Code  (~/.claude/settings.json)
-# ---------------------------------------------------------------------------
+def _resolve_project_root(project_root: Path | None) -> Path | None:
+    if project_root is not None:
+        return project_root.resolve()
+    try:
+        from skills_mcp.paths import project_root_from_env_or_discover
 
-_CLAUDE_SETTINGS = Path.home() / ".claude" / "settings.json"
+        return project_root_from_env_or_discover()
+    except FileNotFoundError:
+        return None
 
 
-def claude_registered() -> bool:
-    data = _load_json(_CLAUDE_SETTINGS)
+def _host_registered(settings_path: Path) -> bool:
+    data = _load_json(settings_path)
     return _SERVER_KEY in (data.get("mcpServers") or {})
+
+
+# ---------------------------------------------------------------------------
+# Claude Code  (<project>/.mcp.json)
+# ---------------------------------------------------------------------------
+
+
+def _claude_settings(project_root: Path) -> Path:
+    return project_root / ".mcp.json"
+
+
+def claude_registered(project_root: Path | None = None) -> bool:
+    root = _resolve_project_root(project_root)
+    if root is None:
+        return False
+    return _host_registered(_claude_settings(root))
 
 
 def register_claude(project_root: Path) -> tuple[bool, str]:
-    return _register_host(_CLAUDE_SETTINGS, project_root)
+    return _register_host(_claude_settings(project_root), project_root)
 
 
 # ---------------------------------------------------------------------------
-# Cursor  (~/.cursor/mcp.json)
+# Cursor  (<project>/.cursor/mcp.json)
 # ---------------------------------------------------------------------------
 
-_CURSOR_SETTINGS = Path.home() / ".cursor" / "mcp.json"
+
+def _cursor_settings(project_root: Path) -> Path:
+    return project_root / ".cursor" / "mcp.json"
 
 
-def cursor_registered() -> bool:
-    data = _load_json(_CURSOR_SETTINGS)
-    return _SERVER_KEY in (data.get("mcpServers") or {})
+def cursor_registered(project_root: Path | None = None) -> bool:
+    root = _resolve_project_root(project_root)
+    if root is None:
+        return False
+    return _host_registered(_cursor_settings(root))
 
 
 def register_cursor(project_root: Path) -> tuple[bool, str]:
-    return _register_host(_CURSOR_SETTINGS, project_root)
+    return _register_host(_cursor_settings(project_root), project_root)
 
 
 # ---------------------------------------------------------------------------
@@ -116,9 +140,9 @@ def register_cursor(project_root: Path) -> tuple[bool, str]:
 _GEMINI_SETTINGS = Path.home() / ".gemini" / "settings.json"
 
 
-def gemini_registered() -> bool:
-    data = _load_json(_GEMINI_SETTINGS)
-    return _SERVER_KEY in (data.get("mcpServers") or {})
+def gemini_registered(project_root: Path | None = None) -> bool:
+    del project_root
+    return _host_registered(_GEMINI_SETTINGS)
 
 
 def register_gemini(project_root: Path) -> tuple[bool, str]:
@@ -126,40 +150,38 @@ def register_gemini(project_root: Path) -> tuple[bool, str]:
 
 
 # ---------------------------------------------------------------------------
-# Antigravity  (~/.antigravity/mcp.json)  — Google IDE
+# Antigravity  (<project>/.agents/mcp_config.json)
 # ---------------------------------------------------------------------------
 
-_ANTIGRAVITY_SETTINGS = Path.home() / ".antigravity" / "mcp.json"
 
-# Antigravity also reads from ~/.gemini/antigravity/mcp_config.json
-_ANTIGRAVITY_GEMINI_SETTINGS = Path.home() / ".gemini" / "antigravity" / "mcp_config.json"
+def _antigravity_settings(project_root: Path) -> Path:
+    return project_root / ".agents" / "mcp_config.json"
 
 
-def antigravity_registered() -> bool:
-    data = _load_json(_ANTIGRAVITY_SETTINGS)
-    data2 = _load_json(_ANTIGRAVITY_GEMINI_SETTINGS)
-    return _SERVER_KEY in (data.get("mcpServers") or {}) or _SERVER_KEY in (data2.get("mcpServers") or {})
+def antigravity_registered(project_root: Path | None = None) -> bool:
+    root = _resolve_project_root(project_root)
+    if root is None:
+        return False
+    return _host_registered(_antigravity_settings(root))
 
 
 def register_antigravity(project_root: Path) -> tuple[bool, str]:
-    ok1, msg1 = _register_host(_ANTIGRAVITY_SETTINGS, project_root)
-    ok2, msg2 = _register_host(_ANTIGRAVITY_GEMINI_SETTINGS, project_root)
-    ok = ok1 or ok2
-    msg = "; ".join(m for m in [msg1, msg2] if m)
-    return ok, msg
+    return _register_host(_antigravity_settings(project_root), project_root)
 
 
 # ---------------------------------------------------------------------------
 # Unified API
 # ---------------------------------------------------------------------------
 
-def registration_status() -> dict[str, bool]:
-    """Return per-host registration status."""
+
+def registration_status(project_root: Path | None = None) -> dict[str, bool]:
+    """Return per-host registration status for the given or discovered project."""
+    root = _resolve_project_root(project_root)
     return {
-        "claude": claude_registered(),
-        "cursor": cursor_registered(),
-        "gemini": gemini_registered(),
-        "antigravity": antigravity_registered(),
+        "claude": claude_registered(root),
+        "cursor": cursor_registered(root),
+        "gemini": gemini_registered(root),
+        "antigravity": antigravity_registered(root),
     }
 
 

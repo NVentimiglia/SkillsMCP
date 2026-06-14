@@ -28,18 +28,10 @@ def project_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setenv("SKILLS_MCP_ROOT", str(tmp_path))
     monkeypatch.chdir(tmp_path)
 
-    # Redirect all MCP registration writes to tmp_path so cmd_init never
-    # touches the real user settings files (~/.claude/settings.json etc.).
-    monkeypatch.setattr("skills_mcp.mcp_registration._CLAUDE_SETTINGS",
-                        tmp_path / ".claude" / "settings.json")
-    monkeypatch.setattr("skills_mcp.mcp_registration._CURSOR_SETTINGS",
-                        tmp_path / ".cursor" / "mcp.json")
+    # Redirect Gemini global registration to tmp_path so cmd_init never
+    # touches the real user settings file (~/.gemini/settings.json).
     monkeypatch.setattr("skills_mcp.mcp_registration._GEMINI_SETTINGS",
                         tmp_path / ".gemini" / "settings.json")
-    monkeypatch.setattr("skills_mcp.mcp_registration._ANTIGRAVITY_SETTINGS",
-                        tmp_path / ".antigravity" / "mcp.json")
-    monkeypatch.setattr("skills_mcp.mcp_registration._ANTIGRAVITY_GEMINI_SETTINGS",
-                        tmp_path / ".gemini" / "antigravity" / "mcp_config.json")
 
     cmd_init(tmp_path)
 

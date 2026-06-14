@@ -49,6 +49,10 @@ skills-mcp init .
 
 Restart your agent host to pick up the new skills.
 
+**Setup guide for agents:** bundled skill `skillmcp-setup` — install, per-host MCP
+wiring (Cursor, Claude, Antigravity, Gemini), multi-repo best practices. Agents:
+`read_skill('skillmcp-setup')`.
+
 ---
 
 ## How it works
@@ -98,10 +102,12 @@ Markdown skill files the agent fetches with `list_skills` / `read_skill` as need
    - `AGENT.md` — behavioral rules injected into every session (all folders combined)
    - `skills/` — skill library scanned for `list_skills` / `read_skill`
 
-4. **Re-register after moving the project**
+4. **Register workspace MCP** (from each project)
    ```bash
    skills-mcp mcp register
    ```
+   Writes `.mcp.json`, `.cursor/mcp.json`, and `.agents/mcp_config.json` in the project;
+   Gemini remains global (`~/.gemini/settings.json`).
 
 ---
 
