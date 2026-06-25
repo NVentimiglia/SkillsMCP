@@ -39,10 +39,6 @@ def _server_entry(project_root: Path) -> dict:
     root_path = str(project_root.resolve())
     env: dict[str, str] = {"SKILLS_MCP_ROOT": root_path}
 
-    pkg_agent = Path(__file__).resolve().parent.parent.parent / ".agents"
-    if pkg_agent.is_dir():
-        env["SKILLS_MCP_LIBRARY"] = str(pkg_agent)
-
     args = ["-m", "skills_mcp", "serve", "--root", root_path]
     if sys.platform == "win32":
         args = ["-u", *args]

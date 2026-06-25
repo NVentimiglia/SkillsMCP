@@ -91,9 +91,34 @@ def parse_skill_file(
     )
 
 
+def _is_single_skill_folder(scan_root: Path) -> bool:
+    """True when the path itself is one skill (SKILL.md at folder root)."""
+    return (scan_root / "SKILL.md").is_file()
+
+
+def _load_single_skill_folder(scan_root: Path, project_root: Path) -> dict[str, LoadedSkill]:
+    sk_path = scan_root / "SKILL.md"
+    try:
+        ls = parse_skill_file(
+            sk_path,
+            project_root=project_root,
+            skill_disk_root=scan_root.resolve(),
+            fmt="directory",
+        )
+    except ValueError as exc:
+        log.warning("Skipping invalid single-skill folder %s: %s", scan_root, exc)
+        return {}
+    if ls is None:
+        return {}
+    return {ls.parsed.fm.name: ls}
+
+
 def _gather_tree_into_dict(scan_root: Path, project_root: Path) -> dict[str, LoadedSkill]:
     if not scan_root.is_dir():
         raise FileNotFoundError(f"skills directory missing: {scan_root}")
+
+    if _is_single_skill_folder(scan_root):
+        return _load_single_skill_folder(scan_root, project_root)
 
     dir_skill_files = sorted(scan_root.rglob("SKILL.md"))
     loaded: list[LoadedSkill] = []

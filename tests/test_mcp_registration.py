@@ -41,7 +41,7 @@ def _fake_antigravity_settings(project_root: Path) -> Path:
 
 def _patch_gemini(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setattr("skills_mcp.mcp_registration._GEMINI_SETTINGS", _fake_gemini_settings(tmp_path))
-    (tmp_path / "skillmcp.toml").write_text('agent_folders = [".agents/"]\n', encoding="utf-8")
+    (tmp_path / "skillmcp.toml").write_text('skill_folders = [".agents/skills"]\n', encoding="utf-8")
 
 
 # ---------------------------------------------------------------------------

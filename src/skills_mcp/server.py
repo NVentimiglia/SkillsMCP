@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import cast
@@ -9,9 +8,15 @@ from typing import cast
 from mcp.server.fastmcp import FastMCP
 
 from skills_mcp.app_state import AppContext, init_app, reset_app
-from skills_mcp.config import load_config, resolve_path
+from skills_mcp.config import load_config, resolve_skill_dirs
 from skills_mcp.paths import project_root_from_env_or_discover
-from skills_mcp.rules.instructions import render_mcp_seed_text
+from skills_mcp.learn_tools import (
+    learn_paths_json,
+    learn_run_script_json,
+    learn_stamp_json,
+)
+from skills_mcp.rules.instructions import render_mcp_instructions
+from skills_mcp.setup_check import build_setup_report
 from skills_mcp.skills.loader import SkillIndex
 
 mcp = FastMCP("skills-mcp")
@@ -35,25 +40,9 @@ def configure(root: Path | None = None) -> AppContext:
     _APP = init_app(root)
     _SKILLS = SkillIndex(_APP.skill_dirs, project_root=_APP.root)
     _SKILLS.scan()
-    agent_md = _load_agent_md(_APP.agent_dirs)
-    mcp._mcp_server.instructions = render_mcp_seed_text(agent_md_content=agent_md)
-
-    from skills_mcp.telemetry import record_session
-    record_session(_APP.root)
+    mcp._mcp_server.instructions = render_mcp_instructions()
 
     return _APP
-
-
-def _load_agent_md(agent_dirs: list[Path]) -> str | None:
-    """Read AGENT.md from each agent folder; return combined content, else None."""
-    parts = []
-    for d in agent_dirs:
-        path = d / "AGENT.md"
-        if path.is_file():
-            content = path.read_text(encoding="utf-8").strip()
-            if content:
-                parts.append(content)
-    return "\n\n".join(parts) if parts else None
 
 
 def reset_runtime() -> None:
@@ -69,44 +58,21 @@ def _require_runtime() -> tuple[SkillIndex, AppContext]:
     return _SKILLS, _APP
 
 
-def _run_traced(
-    tool_name: str,
-    fn: Callable[[], str],
-) -> str:
-    """Execute tool function."""
-    _skills, app = _require_runtime()
-    from skills_mcp.telemetry import record_tool_call
-    record_tool_call(app.root, tool_name)
-    return fn()
-
-
 def _impl_verify_setup() -> str:
     skills, app = _require_runtime()
-
-    issues: list[str] = []
-    for d in app.skill_dirs:
-        if not d.is_dir():
-            issues.append(f"skill_dir_missing: {d}")
-    if not app.skill_dirs:
-        issues.append("no agent_folders configured")
-
     meta = skills.list_skills_meta()
-
-    report = {
-        "ok": len(issues) == 0,
-        "checked_at": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "project_root": str(app.root.resolve()),
-        "skill_dirs": [str(d) for d in app.skill_dirs],
-        "issues": issues,
-        "skills_count": len(meta),
-    }
+    report = build_setup_report(
+        root=app.root,
+        skill_dirs=app.skill_dirs,
+        skills_count=len(meta),
+    )
     return json.dumps(report, indent=2, ensure_ascii=False, sort_keys=False)
 
 
 @mcp.tool()
 def verify_setup(session_note: str = "") -> str:
-    """One-call health snapshot: paths and skill counts."""
-    return _run_traced("verify_setup", _impl_verify_setup)
+    """One-call health snapshot: paths, skill counts, and registration status."""
+    return _impl_verify_setup()
 
 
 def _local_skill_index(project_path: str, app: AppContext) -> "SkillIndex | None":
@@ -116,17 +82,14 @@ def _local_skill_index(project_path: str, app: AppContext) -> "SkillIndex | None
     local_root = Path(project_path.strip()).resolve()
     if local_root == app.root:
         return None
-    # Load agent_folders from local skillmcp.toml if present, else default
+    # Load skill_folders from local skillmcp.toml if present, else default
     local_cfg_path = local_root / "skillmcp.toml"
     if local_cfg_path.is_file():
         local_cfg = load_config(local_root)
-        agent_dirs = [resolve_path(local_root, f) for f in local_cfg.agent_folders]
-        dirs = [d / "skills" for d in agent_dirs]
+        dirs = resolve_skill_dirs(local_root, local_cfg)
     else:
-        default = local_root / ".agents" / "skills"
-        if not default.is_dir():
-            return None
-        dirs = [default]
+        default = resolve_skill_dirs(local_root, load_config(local_root))
+        dirs = default
     dirs = [d for d in dirs if d.is_dir()]
     if not dirs:
         return None
@@ -155,13 +118,11 @@ def list_skills(project_path: str = "", session_note: str = "") -> str:
     include skills from that project's skill folders.  Local skills take
     precedence over global on name collision.
     """
-    return _run_traced("list_skills", lambda: _impl_list_skills(project_path))
+    return _impl_list_skills(project_path)
 
 
 def _impl_read_skill(name: str, project_path: str, usage_reason: str) -> str:
     skills, app = _require_runtime()
-    from skills_mcp.telemetry import record_skill_access
-    record_skill_access(app.root, name)
     local_idx = _local_skill_index(project_path, app)
     if local_idx is not None:
         try:
@@ -180,7 +141,7 @@ def read_skill(name: str, project_path: str = "", usage_reason: str = "", sessio
     Checks the local project's skill folders first (if ``project_path`` given),
     then falls back to global skills.
     """
-    return _run_traced("read_skill", lambda: _impl_read_skill(name, project_path, usage_reason))
+    return _impl_read_skill(name, project_path, usage_reason)
 
 
 _SKILL_FILE_KINDS = {"references", "scripts", "assets"}
@@ -238,7 +199,7 @@ def list_skill_files(
 
     Returns JSON rows with relative path, byte size, and modified timestamp.
     """
-    return _run_traced("list_skill_files", lambda: _impl_list_skill_files(name, kind, project_path))
+    return _impl_list_skill_files(name, kind, project_path)
 
 
 def _impl_read_skill_file(name: str, kind: str, rel_path: str, project_path: str) -> str:
@@ -266,35 +227,43 @@ def read_skill_file(
     session_note: str = "",
 ) -> str:
     """Read one UTF-8 text file from a skill's references/scripts/assets directory."""
-    return _run_traced(
-        "read_skill_file",
-        lambda: _impl_read_skill_file(name, kind, rel_path, project_path),
-    )
-
-
-def _impl_skill_health() -> str:
-    skills, app = _require_runtime()
-    from skills_mcp.telemetry import _load_telemetry
-    
-    file_path = app.root / "telemetry.json"
-    data = _load_telemetry(file_path)
-    
-    call_number = data.get("ToolCalls", {}).get("skill_health", 0)
-    
-    report = {
-        "status": "healthy",
-        "call_number": call_number,
-        "total_sessions": data.get("TotalSessions", 0),
-        "total_skill_calls": data.get("TotalSkillCalls", 0),
-        "checked_at": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
-    }
-    return json.dumps(report, indent=2, ensure_ascii=False)
+    return _impl_read_skill_file(name, kind, rel_path, project_path)
 
 
 @mcp.tool()
-def skill_health(session_note: str = "") -> str:
-    """Check health of the SkillsMCP server and return invocation sequence info."""
-    return _run_traced("skill_health", _impl_skill_health)
+def learn_paths(project_path: str = "", session_note: str = "") -> str:
+    """Resolve LearnSkill output paths from skillmcp.toml [learn] section.
+
+    Returns JSON: project_root, output_dir, inbox_dir, stamp_file, scripts_dir.
+    """
+    _, app = _require_runtime()
+    return learn_paths_json(project_path, app.root)
+
+
+@mcp.tool()
+def learn_run_script(
+    script: str,
+    project_path: str = "",
+    session_path: str = "",
+    since: str = "",
+    session_note: str = "",
+) -> str:
+    """Run a bundled learn skill script (detectors or collect-cursor).
+
+    script: e.g. detect-thrashing.py or collect-cursor.py
+    session_path: required for detect-* scripts (path to JSONL session file)
+    since: optional Unix timestamp for collect-cursor.py
+    Returns JSON with stdout (stderr appended if present).
+    """
+    _, app = _require_runtime()
+    return learn_run_script_json(script, project_path, app.root, session_path, since)
+
+
+@mcp.tool()
+def learn_stamp(project_path: str = "", session_note: str = "") -> str:
+    """Ensure .learn output dirs exist and update lean.stamp after a learn run."""
+    _, app = _require_runtime()
+    return learn_stamp_json(project_path, app.root)
 
 
 def run_stdio_server(root: Path | None = None) -> None:

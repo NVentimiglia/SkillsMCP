@@ -1,21 +1,19 @@
 # SkillMCP
 
-Serves project-specific skills and behavioral rules to AI agents via MCP.
+Local MCP server that serves project skills to AI coding agents (Cursor, Claude Code, Gemini CLI, Antigravity).
 
-Works with Claude Code, Gemini CLI, Cursor, and Antigravity.
+The host spawns `skills-mcp serve` over **stdio** (no HTTP). SkillMCP injects a short session ritual via MCP instructions and exposes tools to list and read `SKILL.md` files on demand.
 
-Pairs well with [LearnSkill](https://github.com/NVentimiglia/LearnSkill) (behavioral auditing) and [claude-mem](https://github.com/thedotmack/claude-mem) (long-term memory).
+Pairs well with [LearnSkill](https://github.com/NVentimiglia/LearnSkill) (session friction) and [claude-mem](https://github.com/thedotmack/claude-mem) (long-term memory).
 
-**How it works (MCP, registration, code examples):** see [ABOUT.md](ABOUT.md).
+**Requirements:** Python ≥ 3.11. Standalone package — no monorepo or sibling tools required.
 
 ---
 
-## Install (standalone)
-
-SkillMCP installs and runs on its own. You do not need the parent Agents monorepo or any sibling tool (LearnSkill, claude-mem, etc.).
+## Install
 
 ```bash
-cd SkillMCP    # this directory only
+cd SkillMCP
 
 # Option A — uv (recommended)
 uv sync
@@ -26,162 +24,208 @@ pip install -e .
 skills-mcp --version
 ```
 
-Then wire it into a project:
+---
+
+## Quick start
 
 ```bash
 cd /path/to/your-project
-skills-mcp init .          # skillmcp.toml, .agents/, register MCP with hosts
-skills-mcp doctor            # verify layout and host registration
+skills-mcp init .          # skillmcp.toml, .agents/skills/, register MCP with hosts
+skills-mcp verify            # layout + registration check
 ```
 
-Restart your agent host (Cursor, Claude Code, etc.) so it spawns the new MCP server.
+Restart your agent host so it picks up the new MCP server entry.
 
-**Requirements:** Python ≥ 3.11.
+Example project layout (see `examples/my-project/`):
 
----
-
-## Quick Start
-
-```bash
-cd /path/to/your-project
-skills-mcp init .
+```
+your-project/
+  skillmcp.toml
+  .agents/
+    skills/
+      my-skill/
+        SKILL.md
 ```
 
-Restart your agent host to pick up the new skills.
-
-**Setup guide for agents:** bundled skill `skillmcp-setup` — install, per-host MCP
-wiring (Cursor, Claude, Antigravity, Gemini), multi-repo best practices. Agents:
-`read_skill('skillmcp-setup')`.
-
 ---
 
-## How it works
+## Configuration
 
-Injects knowledge into every agent session automatically via the MCP instruction block.
+### `skillmcp.toml`
 
-### AGENT.md — behavioral rules
+Lists **skill folders** in priority order. Later entries win on **name collision**.
 
-Markdown files injected into the system prompt at session start. All sources are combined; none are dropped.
+```toml
+skill_folders = [
+    "/path/to/shared/skills",
+    ".agents/skills",
+]
+```
 
-| Source | Location |
-|---|---|
-| Bundled (SkillMCP install) | `<skillmcp>/.agents/AGENT.md` |
-| Configured agent folders | `AGENT.md` in each `agent_folders` entry |
+| Case | Result |
+|------|--------|
+| File missing | Defaults to `[".agents/skills"]` |
+| `skill_folders = []` or null | Same default |
 
-### Skills — on-demand knowledge
+Each `skill_folders` entry can be either:
 
-Markdown skill files the agent fetches with `list_skills` / `read_skill` as needed. Later entries in `agent_folders` win on name collision.
+| Path kind | Detection | Example |
+|-----------|-----------|---------|
+| **Skill library** | No `SKILL.md` at the folder root — scan subfolders and flat `.md` files | `.agents/skills/` → `project-starter/SKILL.md` |
+| **Single skill** | `SKILL.md` at the folder root — load exactly that skill | `LearnSkill/learn/` → one `learn` skill |
 
-| Source | Location |
-|---|---|
-| Bundled (SkillMCP install) | `<skillmcp>/.agents/skills/` |
-| Configured agent folders | `skills/` subdir of each `agent_folders` entry |
+```toml
+skill_folders = [
+    "/path/to/LearnSkill/learn",   # single skill folder
+    ".agents/skills",              # project skill library
+]
+```
 
----
+**Skill library** contents:
 
-## Setup
+- Directory skills: `foo/SKILL.md` plus optional `references/`, `scripts/`, `assets/`
+- Flat legacy files: `foo.md` (YAML frontmatter + body)
 
-1. **Install** (see [Install (standalone)](#install-standalone) above).
+**Single skill folder:** point at the directory that contains `SKILL.md` (name in frontmatter need not match the folder name).
 
-2. **Initialize**
-   ```bash
-   skills-mcp init .
-   ```
+Frontmatter fields: `name`, `description`, optional `triggers`, `metadata`, `license`, `compatibility`.
 
-3. **Configure**
-   Edit `skillmcp.toml` to add agent folders. Last entry wins on collision.
+### Environment variables
 
-   ```toml
-   agent_folders = [
-       "/path/to/shared/agents",
-       ".agents/",
-   ]
-   ```
+| Variable | Meaning |
+|----------|---------|
+| `SKILLS_MCP_ROOT` | Project directory containing `skillmcp.toml` (set by host MCP config) |
+| `SKILLS_MCP_LIBRARY` | Optional shared **skills folder** (lowest priority; prepended before `skill_folders`) |
+| `SKILLS_MCP_RULES_INSTRUCTIONS_MAX_CHARS` | Cap MCP instruction block size (`0` = no cap) |
 
-   Each agent folder can contain:
-   - `AGENT.md` — behavioral rules injected into every session (all folders combined)
-   - `skills/` — skill library scanned for `list_skills` / `read_skill`
+Config discovery: walk up from cwd for `skillmcp.toml`, or use `SKILLS_MCP_ROOT` when set.
 
-4. **Register workspace MCP** (from each project)
-   ```bash
-   skills-mcp mcp register
-   ```
-   Writes `.mcp.json`, `.cursor/mcp.json`, and `.agents/mcp_config.json` in the project;
-   Gemini remains global (`~/.gemini/settings.json`).
+### Skill sources (merge order)
+
+| Priority | Source |
+|----------|--------|
+| Lowest | `SKILLS_MCP_LIBRARY` (optional env) |
+| ↑ | Earlier entries in `skill_folders` |
+| Highest | Last entry in `skill_folders` |
+
+Project rules (`AGENT.md`, `AGENTS.md`, Cursor rules/hooks) are **not** injected by SkillMCP — configure those in your agent host.
+
+### MCP host registration
+
+`skills-mcp init` and `skills-mcp mcp register` write a server entry to:
+
+| Host | Config file |
+|------|-------------|
+| Claude Code | `<project>/.mcp.json` |
+| Cursor | `<project>/.cursor/mcp.json` |
+| Antigravity | `<project>/.agents/mcp_config.json` |
+| Gemini CLI | `~/.gemini/settings.json` (global) |
+
+Example entry (Cursor / Claude):
+
+```json
+{
+  "mcpServers": {
+    "skills-mcp": {
+      "command": "/path/to/venv/bin/python",
+      "args": ["-m", "skills_mcp", "serve", "--root", "/path/to/your-project"],
+      "env": {
+        "SKILLS_MCP_ROOT": "/path/to/your-project",
+        "SKILLS_MCP_LIBRARY": "/path/to/shared/skills"
+      }
+    }
+  }
+}
+```
+
+On Windows, use the full path to `python.exe` in `command` if `skills-mcp` is not on PATH. Add `-u` before `-m` in args if stdio buffering causes handshake timeouts.
+
+Optional shared library: set `SKILLS_MCP_LIBRARY` to a skills folder (e.g. `SkillMCP/examples/my-project/.agents/skills`).
+
+**Manual config (no `init`):** add the same `mcpServers` block yourself using the Python where `skills-mcp` is installed, then restart the host.
 
 ---
 
 ## MCP tools
 
-When the host has registered `skills-mcp`, the agent can call:
-
 | Tool | Description |
 |------|-------------|
-| `verify_setup` | Health snapshot: paths, skill counts |
-| `list_skills` | JSON catalog of skills (`project_path` optional for local merge) |
+| `verify_setup` | JSON health snapshot: paths, skill counts, registration status |
+| `list_skills` | JSON catalog (`project_path` optional — merge another repo's skills) |
 | `read_skill` | Full `SKILL.md` markdown by name |
-| `list_skill_files` | List files in a skill's `references` / `scripts` / `assets` directory |
-| `read_skill_file` | Read one file from a skill's `references` / `scripts` / `assets` directory |
-| `skill_health` | Server status and telemetry counters |
+| `list_skill_files` | Files under a skill's `references` / `scripts` / `assets` |
+| `read_skill_file` | Read one UTF-8 file from a skill subdirectory |
+| `learn_paths` | JSON: `.learn` output paths from `skillmcp.toml` `[learn]` |
+| `learn_run_script` | Run a learn skill script (detectors, collect-cursor) |
+| `learn_stamp` | Ensure `.learn/inbox` exists and update `lean.stamp` |
 
-See [ABOUT.md](ABOUT.md) for protocol details and Python client examples.
+### `list_skills` response
+
+Returns metadata only (not full bodies):
+
+```json
+[
+  {
+    "name": "role-plan",
+    "description": "Produce an execution-ready plan before writing code…",
+    "path": ".agents/skills/role-plan/SKILL.md",
+    "format": "directory",
+    "references_dir": "references",
+    "scripts_dir": "",
+    "assets_dir": ""
+  }
+]
+```
+
+Pass `project_path` when working in a repo other than `SKILLS_MCP_ROOT` to merge that project's skills (local names win on collision).
+
+### Session instructions
+
+Every session gets a fixed ritual: call `list_skills`, then `read_skill(name)` before implementing patterns a skill covers. Large skill bodies stay out of context until explicitly loaded.
 
 ---
 
-## Telemetry & Metrics
-
-SkillMCP automatically tracks usage metrics to build a scalable dataset of agent behavior and skill utilization. Telemetry data is persisted to `telemetry.json` in your project root.
-
-### Telemetry Dataset (`telemetry.json`)
-
-Tracks sessions, tool counts, and skill access leaderboards:
-
-```json
-{
-  "TotalSessions": 100,
-  "TotalSkillCalls": 5,
-  "ToolCalls": {
-    "verify_setup": 10,
-    "list_skills": 12,
-    "read_skill": 5,
-    "skill_health": 1
-  },
-  "Skills": [
-    { "role-plan": 3 },
-    { "role-research": 2 }
-  ]
-}
-```
-
-### Health Diagnostics (`skill_health`)
-
-The server exposes a health-check tool `skill_health` that returns details about the server health and the sequence number of the current tool execution:
-
-```json
-{
-  "status": "healthy",
-  "call_number": 5,
-  "total_sessions": 100,
-  "total_skill_calls": 5,
-  "checked_at": "2026-05-17T16:00:00Z"
-}
-```
-
----
-
-## CLI Reference
+## CLI
 
 | Command | Description |
-|---|---|
-| `init [path]` | Scaffold `.agents/`, `skillmcp.toml`, `AGENT.md`, register MCP |
-| `serve [--root PATH]` | Run MCP server on stdio (normally spawned by the host) |
-| `doctor` | Verify directory layout and MCP registration |
-| `mcp register` | Re-register with all agent hosts (Claude, Gemini, etc.) |
+|---------|-------------|
+| `init [path]` | Create `.agents/skills/`, `skillmcp.toml`, register MCP |
+| `serve [--root PATH]` | Run MCP server on stdio (host spawns this) |
+| `verify` | Verify layout and MCP registration |
+| `mcp register` | Re-register with all supported hosts |
+
+Debug serve manually:
+
+```bash
+skills-mcp serve --root /path/to/your-project
+```
 
 ---
 
 ## Troubleshooting
 
-- **Stale paths**: If you move your project, run `skills-mcp mcp register` from the new location to update absolute paths in the MCP configs.
-- **Missing skills**: Run `skills-mcp doctor` to see which `skillmcp.toml` is discovered and how many skills were found.
-- **Server not starting**: Confirm the host’s `mcp.json` / `settings.json` entry points at the same Python where you installed `skills-mcp`. See [ABOUT.md — Manual host config](ABOUT.md#4-manual-host-config-no-init).
+| Problem | Fix |
+|---------|-----|
+| Stale paths after moving project | Run `skills-mcp mcp register` from the new location |
+| Missing skills | Run `skills-mcp verify` or MCP `verify_setup` — check `project_root`, `skill_dirs`, `skills_count` |
+| Server not starting | Host MCP config must use the same Python where `skills-mcp` is installed |
+| Wrong skills from another repo | Workspace MCP config must set `SKILLS_MCP_ROOT` to **this** project |
+| Windows handshake timeout | Add `-u` before `-m` in python args |
+
+---
+
+## Design notes
+
+- **Stdio, not HTTP** — local-only; every MCP host supports it
+- **Instructions + tools** — small ritual always on; skill bodies loaded on demand
+- **Last-wins merge** — shared library + early folders; project skills in later folders override by name
+- **No daemon** — host spawns the server per session; skill index rebuilt each spawn
+
+---
+
+## Related projects
+
+| Project | Role |
+|---------|------|
+| [LearnSkill](https://github.com/NVentimiglia/LearnSkill) | Session friction analysis |
+| [claude-mem](https://github.com/thedotmack/claude-mem) | Long-term memory across sessions |

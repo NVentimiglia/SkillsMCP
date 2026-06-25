@@ -149,7 +149,7 @@ def phase_1(project_a: Path, project_b: Path) -> None:
     r = run_cli(["skills-mcp", "init", str(project_a)])
     assert_phase("1a skills-mcp init exits 0", r.returncode == 0, r.stderr[:200])
     assert_phase("1b .agents/skills/ created", (project_a / ".agents" / "skills").is_dir())
-    assert_phase("1c .agents/AGENT.md created", (project_a / ".agents" / "AGENT.md").is_file())
+    assert_phase("1c skillmcp.toml created", (project_a / "skillmcp.toml").is_file())
 
     # memory-mcp init
     r = run_cli(["memory-mcp", "init", str(project_a)])
@@ -164,17 +164,17 @@ def phase_1(project_a: Path, project_b: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Phase 2 — Doctor
+# Phase 2 — Verify layout
 # ---------------------------------------------------------------------------
 
 def phase_2(project_a: Path) -> None:
-    print("\n=== Phase 2 — Doctor ===")
+    print("\n=== Phase 2 — Verify ===")
 
-    r = run_cli(["skills-mcp", "doctor"], cwd=project_a,
+    r = run_cli(["skills-mcp", "verify"], cwd=project_a,
                 env={"SKILLS_MCP_ROOT": str(SKILLS_MCP_ROOT)})
     output = r.stdout + r.stderr
-    assert_phase("2a skills-mcp doctor exits 0", r.returncode == 0, output[:300])
-    assert_phase("2b no 'error' in doctor output", "error" not in output.lower(), output[:300])
+    assert_phase("2a skills-mcp verify exits 0", r.returncode == 0, output[:300])
+    assert_phase("2b no 'errors' in verify output", "errors:" not in output.lower(), output[:300])
 
     r = run_cli(["memory-mcp", "doctor"], cwd=project_a,
                 env={"MEMORY_MCP_ROOT": str(MEMORY_MCP_ROOT)})

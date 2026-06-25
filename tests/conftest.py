@@ -18,7 +18,7 @@ def _reset_runtime_between_tests():
 
 
 _TEST_CONFIG = """\
-agent_folders = [".agents/"]
+skill_folders = [".agents/skills"]
 """
 
 

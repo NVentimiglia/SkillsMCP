@@ -1,16 +1,3 @@
-# SkillMCP project configuration
-#
-# agent_folders: ordered list of agent directories to scan.
-# Each folder's skills/ subdir is scanned for skills.
-# Each folder's AGENT.md is injected into every session.
-# Later entries take priority on name collision.
-# Supports absolute paths or paths relative to this file.
-agent_folders = [
-    ".agents/",
+skill_folders = [
+    ".agents/skills",
 ]
-
-# Example: merge a shared agent library before project-local agents.
-# agent_folders = [
-#     "/path/to/shared/agents",
-#     ".agents/",
-# ]

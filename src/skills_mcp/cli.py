@@ -22,11 +22,6 @@ def cmd_init(target: Path) -> None:
         bundled_cfg = BUNDLED / "skillmcp.toml"
         cfg_dst.write_text(bundled_cfg.read_text(encoding="utf-8"), encoding="utf-8")
 
-    agent_md_dst = target / ".agents" / "AGENT.md"
-    if not agent_md_dst.is_file():
-        bundled_agent_md = BUNDLED / "AGENT.md"
-        agent_md_dst.write_text(bundled_agent_md.read_text(encoding="utf-8"), encoding="utf-8")
-
     _ok, msg = register_all(target)
     for line in msg.splitlines():
         print(f"  mcp: {line}")
@@ -39,10 +34,10 @@ def cmd_serve(root: Path | None = None) -> None:
     run_stdio_server(root=root)
 
 
-def cmd_doctor() -> int:
-    from skills_mcp.doctor import run_doctor
+def cmd_verify() -> int:
+    from skills_mcp.setup_check import run_verify_cli
 
-    return run_doctor()
+    return run_verify_cli()
 
 
 def cmd_mcp_register() -> int:
@@ -63,13 +58,13 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--version", action="store_true", help="Print version")
     sub = parser.add_subparsers(dest="cmd")
 
-    p_init = sub.add_parser("init", help="Create skills layout + skillmcp.toml + register MCP")
+    p_init = sub.add_parser("init", help="Create .agents/skills + skillmcp.toml + register MCP")
     p_init.add_argument("path", nargs="?", default=".", type=Path)
 
     p_serve = sub.add_parser("serve", help="Run MCP server (stdio)")
     p_serve.add_argument("--root", type=Path, help="Project root directory")
 
-    sub.add_parser("doctor", help="Verify SkillMCP install and layout")
+    sub.add_parser("verify", help="Verify project layout and MCP registration")
 
     p_mcp = sub.add_parser("mcp", help="Manage MCP server registration with host agents")
     p_mcp_sub = p_mcp.add_subparsers(dest="mcp_cmd")
@@ -101,8 +96,8 @@ def main(argv: list[str] | None = None) -> None:
         cmd_serve(root=args.root)
         return
 
-    if args.cmd == "doctor":
-        sys.exit(cmd_doctor())
+    if args.cmd == "verify":
+        sys.exit(cmd_verify())
 
     if args.cmd == "mcp":
         if args.mcp_cmd == "register":
